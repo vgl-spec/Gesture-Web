@@ -313,14 +313,14 @@ export function CameraView({ mode }: CameraViewProps) {
       const wrist = lms[0];
       const fingerTips = [4, 8, 12, 16, 20];
       
-      // Hand scale reference: wrist to middle finger base (9)
+      // Reference length: wrist (0) to middle finger base (9)
       const handScale = Math.sqrt(
         Math.pow(lms[9].x - wrist.x, 2) + 
         Math.pow(lms[9].y - wrist.y, 2) + 
         Math.pow(lms[9].z - wrist.z, 2)
       );
 
-      // Edge length patterns: ratio of finger tip distance to hand scale
+      // Edge length pattern: ratio of distance (wrist to tip) over handScale
       return fingerTips.map(idx => {
         const tip = lms[idx];
         const dist = Math.sqrt(
@@ -328,30 +328,28 @@ export function CameraView({ mode }: CameraViewProps) {
           Math.pow(tip.y - wrist.y, 2) + 
           Math.pow(tip.z - wrist.z, 2)
         );
-        return dist / (handScale || 1);
+        return dist / (handScale || 0.1);
       });
     };
 
     const currentFeatures = getFeatures(landmarks);
     let bestLabel = 'None';
-    let minScore = 0.4; // Strict threshold for precise pattern matching
+    let minDiff = 1.2; // Adjusted threshold for better sensitivity
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
-      if (!sampleLandmarks || !Array.isArray(sampleLandmarks)) return;
+      if (!sampleLandmarks) return;
       
       const sampleFeatures = getFeatures(sampleLandmarks);
       
-      // Calculate variance between current patterns and stored neural patterns
-      let variance = 0;
-      currentFeatures.forEach((f, i) => {
-        // Equal weighting for all finger "edges" to detect extension/contraction
-        variance += Math.pow(f - sampleFeatures[i], 2);
+      // Calculate total edge length difference
+      let totalDiff = 0;
+      currentFeatures.forEach((val, i) => {
+        totalDiff += Math.abs(val - sampleFeatures[i]);
       });
-      const score = Math.sqrt(variance);
 
-      if (score < minScore) {
-        minScore = score;
+      if (totalDiff < minDiff) {
+        minDiff = totalDiff;
         bestLabel = sample.label;
       }
     });
