@@ -31,8 +31,9 @@ export function drawHandSkeleton(ctx: CanvasRenderingContext2D, landmarks: Point
   ctx.clearRect(0, 0, width, height);
 
   // Helper to map normalized coordinates to pixel coordinates
+  // Mirroring horizontally because it's front cam
   const toPixel = (pt: Point) => ({
-    x: pt.x * width,
+    x: (1 - pt.x) * width,
     y: pt.y * height
   });
 

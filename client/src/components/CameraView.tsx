@@ -118,7 +118,7 @@ export function CameraView({ mode }: CameraViewProps) {
       [4, 8, 12, 16, 20].forEach(idx => {
         const pt = landmarks[idx];
         particleSystem.current.emit(
-          pt.x * videoWidth, 
+          (1 - pt.x) * videoWidth, 
           pt.y * videoHeight, 
           idx === 4 ? LANDMARK_COLORS.thumb : LANDMARK_COLORS.index
         );
