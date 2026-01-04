@@ -35,14 +35,13 @@ export function CameraView({ mode }: CameraViewProps) {
   // Initialize MediaPipe
   useEffect(() => {
     const loadMediaPipe = async () => {
-      // Check if scripts are already loaded
       if (window.Hands) {
         setLoading(false);
         return;
       }
 
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js';
       script.async = true;
       document.body.appendChild(script);
 
@@ -50,7 +49,6 @@ export function CameraView({ mode }: CameraViewProps) {
         if (window.Hands) {
           const hands = new window.Hands({
             locateFile: (file: string) => {
-              // Use a reliable version for assets
               return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
             }
           });
@@ -64,10 +62,14 @@ export function CameraView({ mode }: CameraViewProps) {
 
           hands.onResults(onResults);
 
-          const processVideo = () => {
+          const processVideo = async () => {
             if (webcamRef.current?.video?.readyState === 4) {
-              const video = webcamRef.current.video;
-              hands.send({ image: video });
+              try {
+                const video = webcamRef.current.video;
+                await hands.send({ image: video });
+              } catch (e) {
+                console.error("MediaPipe Error:", e);
+              }
             }
             requestAnimationFrame(processVideo);
           };
