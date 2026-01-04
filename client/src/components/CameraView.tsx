@@ -313,29 +313,28 @@ export function CameraView({ mode }: CameraViewProps) {
       const wrist = lms[0];
       const fingerTips = [4, 8, 12, 16, 20];
       
-      // Calculate distances from wrist to fingertips
-      const distances = fingerTips.map(idx => {
-        const tip = lms[idx];
-        return Math.sqrt(
-          Math.pow(tip.x - wrist.x, 2) + 
-          Math.pow(tip.y - wrist.y, 2) + 
-          Math.pow(tip.z - wrist.z, 2)
-        );
-      });
-
-      // Normalize by the length of the hand (wrist to middle finger base, index 9)
+      // Hand scale reference: wrist to middle finger base (9)
       const handScale = Math.sqrt(
         Math.pow(lms[9].x - wrist.x, 2) + 
         Math.pow(lms[9].y - wrist.y, 2) + 
         Math.pow(lms[9].z - wrist.z, 2)
       );
 
-      return distances.map(d => d / (handScale || 1));
+      // Edge length patterns: ratio of finger tip distance to hand scale
+      return fingerTips.map(idx => {
+        const tip = lms[idx];
+        const dist = Math.sqrt(
+          Math.pow(tip.x - wrist.x, 2) + 
+          Math.pow(tip.y - wrist.y, 2) + 
+          Math.pow(tip.z - wrist.z, 2)
+        );
+        return dist / (handScale || 1);
+      });
     };
 
     const currentFeatures = getFeatures(landmarks);
     let bestLabel = 'None';
-    let minScore = 0.8; // Relaxed similarity threshold
+    let minScore = 0.4; // Strict threshold for precise pattern matching
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
@@ -343,14 +342,13 @@ export function CameraView({ mode }: CameraViewProps) {
       
       const sampleFeatures = getFeatures(sampleLandmarks);
       
-      // Calculate weighted Euclidean distance between feature vectors
-      let diff = 0;
+      // Calculate variance between current patterns and stored neural patterns
+      let variance = 0;
       currentFeatures.forEach((f, i) => {
-        // Higher weight for index and middle fingers
-        const weight = (i === 1 || i === 2) ? 1.5 : 1.0;
-        diff += Math.pow(f - sampleFeatures[i], 2) * weight;
+        // Equal weighting for all finger "edges" to detect extension/contraction
+        variance += Math.pow(f - sampleFeatures[i], 2);
       });
-      const score = Math.sqrt(diff);
+      const score = Math.sqrt(variance);
 
       if (score < minScore) {
         minScore = score;
