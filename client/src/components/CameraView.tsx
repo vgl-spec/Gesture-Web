@@ -35,17 +35,23 @@ export function CameraView({ mode }: CameraViewProps) {
   // Initialize MediaPipe
   useEffect(() => {
     const loadMediaPipe = async () => {
+      // Check if scripts are already loaded
+      if (window.Hands) {
+        setLoading(false);
+        return;
+      }
+
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
       script.async = true;
       document.body.appendChild(script);
 
-      script.onload = async () => {
+      script.onload = () => {
         if (window.Hands) {
           const hands = new window.Hands({
             locateFile: (file: string) => {
-              const version = window.Hands?.VERSION || '0.4.1646424915';
-              return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${version}/${file}`;
+              // Use a reliable version for assets
+              return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
             }
           });
 
@@ -58,7 +64,6 @@ export function CameraView({ mode }: CameraViewProps) {
 
           hands.onResults(onResults);
 
-          // Start processing loop
           const processVideo = () => {
             if (webcamRef.current?.video?.readyState === 4) {
               const video = webcamRef.current.video;
