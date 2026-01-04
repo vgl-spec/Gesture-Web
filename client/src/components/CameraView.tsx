@@ -312,6 +312,7 @@ export function CameraView({ mode }: CameraViewProps) {
     const getFeatures = (lms: any[]) => {
       const wrist = lms[0];
       const fingerTips = [4, 8, 12, 16, 20];
+      const joints = [2, 5, 9, 13, 17]; // Bases of each finger
       
       // Reference length: wrist (0) to middle finger base (9)
       const handScale = Math.sqrt(
@@ -320,8 +321,8 @@ export function CameraView({ mode }: CameraViewProps) {
         Math.pow(lms[9].z - wrist.z, 2)
       );
 
-      // Edge length pattern: ratio of distance (wrist to tip) over handScale
-      return fingerTips.map(idx => {
+      // 1. Edge length patterns: wrist to tips
+      const tipEdges = fingerTips.map(idx => {
         const tip = lms[idx];
         const dist = Math.sqrt(
           Math.pow(tip.x - wrist.x, 2) + 
@@ -330,11 +331,25 @@ export function CameraView({ mode }: CameraViewProps) {
         );
         return dist / (handScale || 0.1);
       });
+
+      // 2. Vertex patterns: finger tip to finger base (extension check)
+      const extensionEdges = fingerTips.map((tipIdx, i) => {
+        const tip = lms[tipIdx];
+        const base = lms[joints[i]];
+        const dist = Math.sqrt(
+          Math.pow(tip.x - base.x, 2) + 
+          Math.pow(tip.y - base.y, 2) + 
+          Math.pow(tip.z - base.z, 2)
+        );
+        return dist / (handScale || 0.1);
+      });
+
+      return [...tipEdges, ...extensionEdges];
     };
 
     const currentFeatures = getFeatures(landmarks);
     let bestLabel = 'None';
-    let minDiff = 1.2; // Adjusted threshold for better sensitivity
+    let minDiff = 0.8; // Tighter threshold for "same pattern" match
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
@@ -342,12 +357,13 @@ export function CameraView({ mode }: CameraViewProps) {
       
       const sampleFeatures = getFeatures(sampleLandmarks);
       
-      // Calculate total edge length difference
+      // Calculate total edge/vertex length difference
       let totalDiff = 0;
       currentFeatures.forEach((val, i) => {
         totalDiff += Math.abs(val - sampleFeatures[i]);
       });
 
+      // Active matching: both patterns must be highly similar
       if (totalDiff < minDiff) {
         minDiff = totalDiff;
         bestLabel = sample.label;
