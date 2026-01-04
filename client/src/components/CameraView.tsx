@@ -44,10 +44,8 @@ export function CameraView({ mode }: CameraViewProps) {
         if (window.Hands) {
           const hands = new window.Hands({
             locateFile: (file: string) => {
-              if (file.endsWith('.data') || file.endsWith('.wasm')) {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${window.Hands.VERSION}/${file}`;
-              }
-              return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+              const version = window.Hands?.VERSION || '0.4.1646424915';
+              return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${version}/${file}`;
             }
           });
 
