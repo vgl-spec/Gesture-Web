@@ -96,9 +96,10 @@ app.use((req, res, next) => {
     // this serves both the API and the client.
     // It is the only port that is not firewalled.
     const port = parseInt(process.env.PORT || "5000", 10);
-    httpServer.listen(port, () => {
+    // Bind to 0.0.0.0 so remote hosts (Render) can connect
+    httpServer.listen(port, "0.0.0.0", () => {
       log(`✅ Server running on port ${port}`);
-      log(`🌐 Open in browser: http://localhost:${port}`);
+      log(`🌐 Open in browser: http://0.0.0.0:${port}`);
     });
   } catch (error) {
     console.error("❌ Server startup error:", error);
