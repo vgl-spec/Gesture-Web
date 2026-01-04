@@ -35,7 +35,7 @@ export function CameraView({ mode }: CameraViewProps) {
   const { data: storedGestures } = useGestures();
   const createGesture = useCreateGesture();
 
-  // Initialize Three.js 3D Car
+  // Initialize Three.js 3D Particle Car
   useEffect(() => {
     if (!threeContainerRef.current) return;
 
@@ -58,54 +58,120 @@ export function CameraView({ mode }: CameraViewProps) {
 
     threeContainerRef.current.appendChild(renderer.domElement);
 
-    // Create a simple stylized car
-    const car = new THREE.Group();
-    
-    // Main body
-    const bodyGeom = new THREE.BoxGeometry(2, 0.6, 1);
-    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.2 });
-    const body = new THREE.Mesh(bodyGeom, bodyMat);
-    car.add(body);
+    // Particle Car Setup
+    const particleCount = 2000;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const targetPositions = new Float32Array(particleCount * 3);
+    const velocities = new Float32Array(particleCount * 3);
 
-    // Cabin
-    const cabinGeom = new THREE.BoxGeometry(1.2, 0.5, 0.8);
-    const cabin = new THREE.Mesh(cabinGeom, bodyMat);
-    cabin.position.y = 0.5;
-    cabin.position.x = -0.2;
-    car.add(cabin);
+    // Generate Car Shape Targets
+    for (let i = 0; i < particleCount; i++) {
+      let tx, ty, tz;
+      const r = Math.random();
+      if (r < 0.7) {
+        // Main body: Box -1 to 1, -0.3 to 0.3, -0.5 to 0.5
+        tx = (Math.random() - 0.5) * 2;
+        ty = (Math.random() - 0.5) * 0.6;
+        tz = (Math.random() - 0.5) * 1.0;
+      } else if (r < 0.9) {
+        // Cabin: Box -0.6 to 0.4, 0.3 to 0.8, -0.4 to 0.4
+        tx = (Math.random() - 0.6) * 1.0;
+        ty = 0.3 + Math.random() * 0.5;
+        tz = (Math.random() - 0.5) * 0.8;
+      } else {
+        // Wheels: Cylinders
+        const wheelIdx = Math.floor(Math.random() * 4);
+        const wX = wheelIdx < 2 ? -0.7 : 0.7;
+        const wZ = wheelIdx % 2 === 0 ? 0.5 : -0.5;
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * 0.3;
+        tx = wX + Math.cos(angle) * dist;
+        ty = -0.3 + Math.sin(angle) * dist;
+        tz = wZ + (Math.random() - 0.5) * 0.2;
+      }
+      
+      targetPositions[i * 3] = tx;
+      targetPositions[i * 3 + 1] = ty;
+      targetPositions[i * 3 + 2] = tz;
+      
+      // Initial positions (randomly scattered)
+      positions[i * 3] = (Math.random() - 0.5) * 10;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+      
+      velocities[i * 3] = (Math.random() - 0.5) * 0.1;
+      velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
+      velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
+    }
 
-    // Wheels
-    const wheelGeom = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
-    const wheelMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-    const wheelPositions = [
-      [-0.7, -0.3, 0.5], [0.7, -0.3, 0.5],
-      [-0.7, -0.3, -0.5], [0.7, -0.3, -0.5]
-    ];
-    wheelPositions.forEach(pos => {
-      const wheel = new THREE.Mesh(wheelGeom, wheelMat);
-      wheel.position.set(pos[0], pos[1], pos[2]);
-      wheel.rotation.x = Math.PI / 2;
-      car.add(wheel);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0x00ffcc,
+      size: 0.05,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending
     });
 
-    scene.add(car);
-
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-    const directLight = new THREE.DirectionalLight(0xffffff, 1);
-    directLight.position.set(5, 5, 5);
-    scene.add(directLight);
+    const points = new THREE.Points(geometry, material);
+    const carGroup = new THREE.Group();
+    carGroup.add(points);
+    scene.add(carGroup);
 
     camera.position.z = 5;
-    camera.position.y = 2;
+    camera.position.y = 1;
     camera.lookAt(0, 0, 0);
 
-    threeRef.current = { scene, camera, renderer, car };
+    threeRef.current = { scene, camera, renderer, car: carGroup };
 
     const animate = () => {
       if (threeRef.current) {
-        threeRef.current.car.rotation.y += 0.01; // Slow rotation
+        const gesture = (window as any).currentGesture || 'None';
+        const positionAttr = geometry.attributes.position;
+        const posArray = positionAttr.array as Float32Array;
+        
+        for (let i = 0; i < particleCount; i++) {
+          const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
+          
+          if (gesture === 'Open Palm') {
+            // Shatter: move away from center
+            velocities[ix] += (posArray[ix] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
+            velocities[iy] += (posArray[iy] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
+            velocities[iz] += (posArray[iz] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
+            
+            // Limit velocity
+            const maxV = 0.2;
+            velocities[ix] = Math.max(-maxV, Math.min(maxV, velocities[ix]));
+            velocities[iy] = Math.max(-maxV, Math.min(maxV, velocities[iy]));
+            velocities[iz] = Math.max(-maxV, Math.min(maxV, velocities[iz]));
+          } else if (gesture === 'Closed Fist') {
+            // Reconstruct: move towards target
+            const dx = targetPositions[ix] - posArray[ix];
+            const dy = targetPositions[iy] - posArray[iy];
+            const dz = targetPositions[iz] - posArray[iz];
+            
+            velocities[ix] = dx * 0.1;
+            velocities[iy] = dy * 0.1;
+            velocities[iz] = dz * 0.1;
+          } else {
+            // Normal: subtle drift or stay at target
+            const dx = targetPositions[ix] - posArray[ix];
+            const dy = targetPositions[iy] - posArray[iy];
+            const dz = targetPositions[iz] - posArray[iz];
+            
+            velocities[ix] = dx * 0.05 + (Math.random() - 0.5) * 0.005;
+            velocities[iy] = dy * 0.05 + (Math.random() - 0.5) * 0.005;
+            velocities[iz] = dz * 0.05 + (Math.random() - 0.5) * 0.005;
+          }
+          
+          posArray[ix] += velocities[ix];
+          posArray[iy] += velocities[iy];
+          posArray[iz] += velocities[iz];
+        }
+        
+        positionAttr.needsUpdate = true;
+        threeRef.current.car.rotation.y += 0.005;
         threeRef.current.renderer.render(threeRef.current.scene, threeRef.current.camera);
       }
       requestAnimationFrame(animate);
@@ -268,19 +334,21 @@ export function CameraView({ mode }: CameraViewProps) {
     };
 
     const currentFeatures = getFeatures(landmarks);
-    let bestLabel = 'Unknown';
-    let minScore = 0.5; // Similarity threshold
+    let bestLabel = 'None';
+    let minScore = 0.8; // Relaxed similarity threshold
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
-      if (!sampleLandmarks) return;
+      if (!sampleLandmarks || !Array.isArray(sampleLandmarks)) return;
       
       const sampleFeatures = getFeatures(sampleLandmarks);
       
       // Calculate weighted Euclidean distance between feature vectors
       let diff = 0;
       currentFeatures.forEach((f, i) => {
-        diff += Math.pow(f - sampleFeatures[i], 2);
+        // Higher weight for index and middle fingers
+        const weight = (i === 1 || i === 2) ? 1.5 : 1.0;
+        diff += Math.pow(f - sampleFeatures[i], 2) * weight;
       });
       const score = Math.sqrt(diff);
 
@@ -291,6 +359,9 @@ export function CameraView({ mode }: CameraViewProps) {
     });
 
     setLastGesture(bestLabel);
+    
+    // Global gesture state for 3D car
+    if (window) (window as any).currentGesture = bestLabel;
   };
 
   const handleCapture = () => {
