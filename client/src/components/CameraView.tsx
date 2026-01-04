@@ -5,6 +5,7 @@ import { useCreateGesture, useGestures } from '@/hooks/use-gestures';
 import { Button } from './ui/button';
 import { Loader2, Camera, Hand, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as THREE from 'three';
 
 // Types for MediaPipe
 declare global {
@@ -22,6 +23,8 @@ export function CameraView({ mode }: CameraViewProps) {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particleSystem = useRef(new ParticleSystem());
+  const threeRef = useRef<{ scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, car: THREE.Group } | null>(null);
+  const threeContainerRef = useRef<HTMLDivElement>(null);
   
   const [loading, setLoading] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
@@ -31,6 +34,90 @@ export function CameraView({ mode }: CameraViewProps) {
   
   const { data: storedGestures } = useGestures();
   const createGesture = useCreateGesture();
+
+  // Initialize Three.js 3D Car
+  useEffect(() => {
+    if (!threeContainerRef.current) return;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    
+    const updateSize = () => {
+      if (threeContainerRef.current) {
+        const width = threeContainerRef.current.clientWidth;
+        const height = threeContainerRef.current.clientHeight;
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+
+    threeContainerRef.current.appendChild(renderer.domElement);
+
+    // Create a simple stylized car
+    const car = new THREE.Group();
+    
+    // Main body
+    const bodyGeom = new THREE.BoxGeometry(2, 0.6, 1);
+    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.2 });
+    const body = new THREE.Mesh(bodyGeom, bodyMat);
+    car.add(body);
+
+    // Cabin
+    const cabinGeom = new THREE.BoxGeometry(1.2, 0.5, 0.8);
+    const cabin = new THREE.Mesh(cabinGeom, bodyMat);
+    cabin.position.y = 0.5;
+    cabin.position.x = -0.2;
+    car.add(cabin);
+
+    // Wheels
+    const wheelGeom = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+    const wheelMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const wheelPositions = [
+      [-0.7, -0.3, 0.5], [0.7, -0.3, 0.5],
+      [-0.7, -0.3, -0.5], [0.7, -0.3, -0.5]
+    ];
+    wheelPositions.forEach(pos => {
+      const wheel = new THREE.Mesh(wheelGeom, wheelMat);
+      wheel.position.set(pos[0], pos[1], pos[2]);
+      wheel.rotation.x = Math.PI / 2;
+      car.add(wheel);
+    });
+
+    scene.add(car);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    const directLight = new THREE.DirectionalLight(0xffffff, 1);
+    directLight.position.set(5, 5, 5);
+    scene.add(directLight);
+
+    camera.position.z = 5;
+    camera.position.y = 2;
+    camera.lookAt(0, 0, 0);
+
+    threeRef.current = { scene, camera, renderer, car };
+
+    const animate = () => {
+      if (threeRef.current) {
+        threeRef.current.car.rotation.y += 0.01; // Slow rotation
+        threeRef.current.renderer.render(threeRef.current.scene, threeRef.current.camera);
+      }
+      requestAnimationFrame(animate);
+    };
+    animate();
+
+    return () => {
+      window.removeEventListener('resize', updateSize);
+      renderer.dispose();
+      threeRef.current = null;
+    };
+  }, []);
 
   // Initialize MediaPipe
   useEffect(() => {
@@ -114,17 +201,29 @@ export function CameraView({ mode }: CameraViewProps) {
       // Draw skeleton
       drawHandSkeleton(ctx, landmarks, videoWidth, videoHeight);
 
-      // Particle effects on fingertips
+      // Particle effects on fingertips - EMPHASIZED
       [4, 8, 12, 16, 20].forEach(idx => {
         const pt = landmarks[idx];
-        particleSystem.current.emit(
-          (1 - pt.x) * videoWidth, 
-          pt.y * videoHeight, 
-          idx === 4 ? LANDMARK_COLORS.thumb : LANDMARK_COLORS.index
-        );
+        // Emit more particles for emphasis
+        for(let i=0; i<3; i++) {
+          particleSystem.current.emit(
+            (1 - pt.x) * videoWidth, 
+            pt.y * videoHeight, 
+            idx === 4 ? LANDMARK_COLORS.thumb : LANDMARK_COLORS.index
+          );
+        }
       });
 
-      // Gesture Recognition logic (Simple Euclidean)
+      // Move 3D car based on palm position (index 9)
+      if (threeRef.current) {
+        const palm = landmarks[9];
+        // Map 0-1 range to roughly -3 to 3 for Three.js scene
+        // Mirror X because cam is mirrored
+        threeRef.current.car.position.x = (palm.x - 0.5) * -6;
+        threeRef.current.car.position.y = (0.5 - palm.y) * 4;
+      }
+
+      // Gesture Recognition logic
       if (mode === 'detection' && storedGestures?.length) {
         detectGesture(landmarks);
       }
@@ -141,40 +240,57 @@ export function CameraView({ mode }: CameraViewProps) {
   }, [mode, storedGestures]);
 
   const detectGesture = (landmarks: any[]) => {
-    if (!storedGestures) return;
+    if (!storedGestures?.length) return;
 
-    let minDistance = Infinity;
-    let detectedLabel = 'Unknown';
+    // Feature extraction: Normalized distances from wrist (0) to finger tips (4,8,12,16,20)
+    const getFeatures = (lms: any[]) => {
+      const wrist = lms[0];
+      const fingerTips = [4, 8, 12, 16, 20];
+      
+      // Calculate distances from wrist to fingertips
+      const distances = fingerTips.map(idx => {
+        const tip = lms[idx];
+        return Math.sqrt(
+          Math.pow(tip.x - wrist.x, 2) + 
+          Math.pow(tip.y - wrist.y, 2) + 
+          Math.pow(tip.z - wrist.z, 2)
+        );
+      });
+
+      // Normalize by the length of the hand (wrist to middle finger base, index 9)
+      const handScale = Math.sqrt(
+        Math.pow(lms[9].x - wrist.x, 2) + 
+        Math.pow(lms[9].y - wrist.y, 2) + 
+        Math.pow(lms[9].z - wrist.z, 2)
+      );
+
+      return distances.map(d => d / (handScale || 1));
+    };
+
+    const currentFeatures = getFeatures(landmarks);
+    let bestLabel = 'Unknown';
+    let minScore = 0.5; // Similarity threshold
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
       if (!sampleLandmarks) return;
       
-      // Simple comparison of finger tips (indices 4, 8, 12, 16, 20)
-      let dist = 0;
-      [4, 8, 12, 16, 20].forEach(idx => {
-        const p1 = landmarks[idx];
-        const p2 = sampleLandmarks[idx];
-        const d = Math.sqrt(
-          Math.pow(p1.x - p2.x, 2) + 
-          Math.pow(p1.y - p2.y, 2) + 
-          Math.pow(p1.z - p2.z, 2)
-        );
-        dist += d;
+      const sampleFeatures = getFeatures(sampleLandmarks);
+      
+      // Calculate weighted Euclidean distance between feature vectors
+      let diff = 0;
+      currentFeatures.forEach((f, i) => {
+        diff += Math.pow(f - sampleFeatures[i], 2);
       });
+      const score = Math.sqrt(diff);
 
-      if (dist < minDistance) {
-        minDistance = dist;
-        detectedLabel = sample.label;
+      if (score < minScore) {
+        minScore = score;
+        bestLabel = sample.label;
       }
     });
 
-    // Threshold for detection
-    if (minDistance < 1.0) { // Tunable threshold
-      setLastGesture(detectedLabel);
-    } else {
-      setLastGesture('Unknown');
-    }
+    setLastGesture(bestLabel);
   };
 
   const handleCapture = () => {
@@ -226,8 +342,11 @@ export function CameraView({ mode }: CameraViewProps) {
       {/* Canvas Overlay */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full pointer-events-none"
+        className="absolute inset-0 w-full h-full pointer-events-none opacity-40"
       />
+
+      {/* 3D Content Container */}
+      <div ref={threeContainerRef} className="absolute inset-0 z-20 pointer-events-none" />
 
       {/* Overlay UI Layer */}
       <div className="absolute inset-0 z-10 p-6 flex flex-col justify-between pointer-events-none">

@@ -53,10 +53,10 @@ export default function Home() {
         </header>
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="flex flex-col lg:flex-row gap-8">
           
-          {/* Left Column: Camera */}
-          <div className="lg:col-span-2 space-y-6">
+          {/* Left Column: Camera (Main Focus) */}
+          <div className="flex-1 space-y-6">
             <div className="relative group">
               {/* Corner Accents */}
               <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary opacity-50"></div>
@@ -67,7 +67,7 @@ export default function Home() {
               <CameraView mode={mode} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatsCard 
                 icon={<Activity className="w-4 h-4 text-secondary" />}
                 label="Latency"
@@ -84,39 +84,30 @@ export default function Home() {
                 icon={<BrainCircuit className="w-4 h-4 text-primary" />}
                 label="Model"
                 value="Lite"
-                subtext="MediaPipe Hands"
+                subtext="MediaPipe"
+              />
+              <StatsCard 
+                icon={<Cpu className="w-4 h-4 text-orange-400" />}
+                label="GPU"
+                value="Active"
+                subtext="WebGL 2.0"
               />
             </div>
           </div>
 
-          {/* Right Column: Controls & Data */}
-          <div className="space-y-6">
-            
-            {/* Instruction Panel */}
-            <div className="glass-panel p-6 rounded-xl border border-white/5">
-              <h3 className="font-display text-lg mb-4 text-white">
-                {mode === 'training' ? 'Training Protocol' : 'System Status'}
-              </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed font-light mb-4">
-                {mode === 'training' 
-                  ? "Align your hand within the frame. Capture multiple samples for 'Open Palm' and 'Closed Fist' to improve recognition accuracy. The system uses these samples to calculate Euclidean distance signatures."
-                  : "System is actively scanning for gesture matches. Ensure adequate lighting and keep hand within 1-2 meters of the sensor array. Particle effects indicate active tracking points."}
-              </p>
-              
-              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-primary/50 w-2/3 animate-pulse"></div>
-              </div>
-            </div>
-
+          {/* Right Column: Minimized Controls */}
+          <div className="w-full lg:w-80 space-y-6">
             {/* Gesture Database */}
             <GestureList />
-
-            {/* Footer */}
-            <div className="pt-6 border-t border-white/5 flex justify-between items-center opacity-50 hover:opacity-100 transition-opacity">
-               <span className="text-xs font-mono">POWERED BY MEDIAPIPE</span>
-               <a href="#" className="hover:text-primary transition-colors">
-                 <Github className="w-5 h-5" />
-               </a>
+            
+            {/* Minimal Instructions */}
+            <div className="glass-panel p-4 rounded-xl border border-white/5 opacity-60 hover:opacity-100 transition-opacity">
+              <h3 className="text-xs font-tech uppercase tracking-widest mb-2 text-primary/80">Protocol</h3>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                {mode === 'training' 
+                  ? "Align hand and capture samples for signature calculation."
+                  : "Scanning for matches. Ensue adequate lighting."}
+              </p>
             </div>
           </div>
         </div>
