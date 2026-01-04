@@ -319,7 +319,7 @@ export function CameraView({ mode }: CameraViewProps) {
         Math.pow(lms[9].x - wrist.x, 2) + 
         Math.pow(lms[9].y - wrist.y, 2) + 
         Math.pow(lms[9].z - wrist.z, 2)
-      );
+      ) || 0.1;
 
       // 1. Edge length patterns: wrist to tips
       const tipEdges = fingerTips.map(idx => {
@@ -329,7 +329,7 @@ export function CameraView({ mode }: CameraViewProps) {
           Math.pow(tip.y - wrist.y, 2) + 
           Math.pow(tip.z - wrist.z, 2)
         );
-        return dist / (handScale || 0.1);
+        return dist / handScale;
       });
 
       // 2. Vertex patterns: finger tip to finger base (extension check)
@@ -341,7 +341,7 @@ export function CameraView({ mode }: CameraViewProps) {
           Math.pow(tip.y - base.y, 2) + 
           Math.pow(tip.z - base.z, 2)
         );
-        return dist / (handScale || 0.1);
+        return dist / handScale;
       });
 
       return [...tipEdges, ...extensionEdges];
@@ -349,7 +349,7 @@ export function CameraView({ mode }: CameraViewProps) {
 
     const currentFeatures = getFeatures(landmarks);
     let bestLabel = 'None';
-    let minDiff = 0.8; // Tighter threshold for "same pattern" match
+    let minDiff = 2.5; // Significantly more permissive threshold for testing
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
@@ -363,7 +363,8 @@ export function CameraView({ mode }: CameraViewProps) {
         totalDiff += Math.abs(val - sampleFeatures[i]);
       });
 
-      // Active matching: both patterns must be highly similar
+      // console.log(`Gesture: ${sample.label}, Diff: ${totalDiff}`); // Debugging locally
+
       if (totalDiff < minDiff) {
         minDiff = totalDiff;
         bestLabel = sample.label;
