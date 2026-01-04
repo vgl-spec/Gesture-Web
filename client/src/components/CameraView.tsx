@@ -6,12 +6,15 @@ import { Button } from './ui/button';
 import { Loader2, Camera, Hand, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as THREE from 'three';
+import { getShapeForGesture, type ShapePoint } from '@/lib/particle-shapes';
 
 // Types for MediaPipe
 declare global {
   interface Window {
     Hands: any;
     Camera: any;
+    currentGesture: string;
+    palmPosition: { x: number; y: number; z: number } | null;
   }
 }
 
@@ -19,37 +22,59 @@ interface CameraViewProps {
   mode: 'training' | 'detection';
 }
 
+const PARTICLE_COUNT = 3000;
+
 export function CameraView({ mode }: CameraViewProps) {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particleSystem = useRef(new ParticleSystem());
-  const threeRef = useRef<{ scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, car: THREE.Group } | null>(null);
+  const threeRef = useRef<{
+    scene: THREE.Scene;
+    camera: THREE.OrthographicCamera;
+    renderer: THREE.WebGLRenderer;
+    particleGroup: THREE.Group;
+    geometry: THREE.BufferGeometry;
+    targetPositions: Float32Array;
+    velocities: Float32Array;
+    currentShape: string;
+  } | null>(null);
   const threeContainerRef = useRef<HTMLDivElement>(null);
+  const onResultsRef = useRef<((results: any) => void) | null>(null);
   
   const [loading, setLoading] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [lastGesture, setLastGesture] = useState<string>('None');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [currentLandmarks, setCurrentLandmarks] = useState<any[] | null>(null);
+  const [capturedLandmarks, setCapturedLandmarks] = useState<any[] | null>(null); // Landmarks at capture time
   
   const { data: storedGestures } = useGestures();
   const createGesture = useCreateGesture();
 
-  // Initialize Three.js 3D Particle Car
+  // Initialize Three.js 3D Particle System
   useEffect(() => {
     if (!threeContainerRef.current) return;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     
+    let containerWidth = 1;
+    let containerHeight = 1;
+    
     const updateSize = () => {
       if (threeContainerRef.current) {
-        const width = threeContainerRef.current.clientWidth;
-        const height = threeContainerRef.current.clientHeight;
-        renderer.setSize(width, height);
-        camera.aspect = width / height;
+        containerWidth = threeContainerRef.current.clientWidth;
+        containerHeight = threeContainerRef.current.clientHeight;
+        renderer.setSize(containerWidth, containerHeight);
+        
+        // Update orthographic camera to match aspect ratio
+        const aspect = containerWidth / containerHeight;
+        camera.left = -aspect;
+        camera.right = aspect;
+        camera.top = 1;
+        camera.bottom = -1;
         camera.updateProjectionMatrix();
       }
     };
@@ -58,120 +83,132 @@ export function CameraView({ mode }: CameraViewProps) {
 
     threeContainerRef.current.appendChild(renderer.domElement);
 
-    // Particle Car Setup
-    const particleCount = 2000;
+    // Particle System Setup
     const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const targetPositions = new Float32Array(particleCount * 3);
-    const velocities = new Float32Array(particleCount * 3);
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+    const velocities = new Float32Array(PARTICLE_COUNT * 3);
 
-    // Generate Car Shape Targets
-    for (let i = 0; i < particleCount; i++) {
-      let tx, ty, tz;
-      const r = Math.random();
-      if (r < 0.7) {
-        // Main body: Box -1 to 1, -0.3 to 0.3, -0.5 to 0.5
-        tx = (Math.random() - 0.5) * 2;
-        ty = (Math.random() - 0.5) * 0.6;
-        tz = (Math.random() - 0.5) * 1.0;
-      } else if (r < 0.9) {
-        // Cabin: Box -0.6 to 0.4, 0.3 to 0.8, -0.4 to 0.4
-        tx = (Math.random() - 0.6) * 1.0;
-        ty = 0.3 + Math.random() * 0.5;
-        tz = (Math.random() - 0.5) * 0.8;
-      } else {
-        // Wheels: Cylinders
-        const wheelIdx = Math.floor(Math.random() * 4);
-        const wX = wheelIdx < 2 ? -0.7 : 0.7;
-        const wZ = wheelIdx % 2 === 0 ? 0.5 : -0.5;
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * 0.3;
-        tx = wX + Math.cos(angle) * dist;
-        ty = -0.3 + Math.sin(angle) * dist;
-        tz = wZ + (Math.random() - 0.5) * 0.2;
-      }
+    // Initialize with default shape
+    const initialShape = getShapeForGesture('None', PARTICLE_COUNT);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const point = initialShape[i] || { x: 0, y: 0, z: 0 };
+      targetPositions[i * 3] = point.x;
+      targetPositions[i * 3 + 1] = point.y;
+      targetPositions[i * 3 + 2] = point.z;
       
-      targetPositions[i * 3] = tx;
-      targetPositions[i * 3 + 1] = ty;
-      targetPositions[i * 3 + 2] = tz;
+      // Start scattered
+      positions[i * 3] = (Math.random() - 0.5) * 4;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 4;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 2;
       
-      // Initial positions (randomly scattered)
-      positions[i * 3] = (Math.random() - 0.5) * 10;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
-      
-      velocities[i * 3] = (Math.random() - 0.5) * 0.1;
-      velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
-      velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
+      velocities[i * 3] = 0;
+      velocities[i * 3 + 1] = 0;
+      velocities[i * 3 + 2] = 0;
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
     const material = new THREE.PointsMaterial({
       color: 0x00ffcc,
-      size: 0.05,
+      size: 3,
       transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending
+      opacity: 1.0,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true
     });
 
+    // Add glow layer with larger, more transparent particles
+    const glowGeometry = geometry.clone();
+    const glowMaterial = new THREE.PointsMaterial({
+      color: 0x00ffcc,
+      size: 1,
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true
+    });
+    const glowPoints = new THREE.Points(glowGeometry, glowMaterial);
+
     const points = new THREE.Points(geometry, material);
-    const carGroup = new THREE.Group();
-    carGroup.add(points);
-    scene.add(carGroup);
+    const particleGroup = new THREE.Group();
+    particleGroup.add(glowPoints);
+    particleGroup.add(points);
+    scene.add(particleGroup);
 
     camera.position.z = 5;
-    camera.position.y = 1;
     camera.lookAt(0, 0, 0);
 
-    threeRef.current = { scene, camera, renderer, car: carGroup };
+    threeRef.current = { 
+      scene, 
+      camera, 
+      renderer, 
+      particleGroup,
+      geometry,
+      targetPositions,
+      velocities,
+      currentShape: 'None'
+    };
+
+    // Function to update shape targets
+    const updateShapeTargets = (gesture: string) => {
+      if (!threeRef.current || threeRef.current.currentShape === gesture) return;
+      
+      const newShape = getShapeForGesture(gesture, PARTICLE_COUNT);
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const point = newShape[i] || { x: 0, y: 0, z: 0 };
+        threeRef.current.targetPositions[i * 3] = point.x;
+        threeRef.current.targetPositions[i * 3 + 1] = point.y;
+        threeRef.current.targetPositions[i * 3 + 2] = point.z;
+      }
+      threeRef.current.currentShape = gesture;
+    };
 
     const animate = () => {
       if (threeRef.current) {
-        const gesture = (window as any).currentGesture || 'None';
-        const positionAttr = geometry.attributes.position;
-        const posArray = positionAttr.array as Float32Array;
+        const gesture = window.currentGesture || 'None';
+        const palmPos = window.palmPosition;
         
-        for (let i = 0; i < particleCount; i++) {
+        // Update shape when gesture changes
+        updateShapeTargets(gesture);
+        
+        const positionAttr = threeRef.current.geometry.attributes.position;
+        const posArray = positionAttr.array as Float32Array;
+        const { targetPositions: targets, velocities: vels } = threeRef.current;
+        
+        // Smoothly animate particles to target positions
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
           const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
           
-          if (gesture === 'Open Palm') {
-            // Shatter: move away from center
-            velocities[ix] += (posArray[ix] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
-            velocities[iy] += (posArray[iy] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
-            velocities[iz] += (posArray[iz] - 0) * 0.001 + (Math.random() - 0.5) * 0.01;
-            
-            // Limit velocity
-            const maxV = 0.2;
-            velocities[ix] = Math.max(-maxV, Math.min(maxV, velocities[ix]));
-            velocities[iy] = Math.max(-maxV, Math.min(maxV, velocities[iy]));
-            velocities[iz] = Math.max(-maxV, Math.min(maxV, velocities[iz]));
-          } else if (gesture === 'Closed Fist') {
-            // Reconstruct: move towards target
-            const dx = targetPositions[ix] - posArray[ix];
-            const dy = targetPositions[iy] - posArray[iy];
-            const dz = targetPositions[iz] - posArray[iz];
-            
-            velocities[ix] = dx * 0.1;
-            velocities[iy] = dy * 0.1;
-            velocities[iz] = dz * 0.1;
-          } else {
-            // Normal: subtle drift or stay at target
-            const dx = targetPositions[ix] - posArray[ix];
-            const dy = targetPositions[iy] - posArray[iy];
-            const dz = targetPositions[iz] - posArray[iz];
-            
-            velocities[ix] = dx * 0.05 + (Math.random() - 0.5) * 0.005;
-            velocities[iy] = dy * 0.05 + (Math.random() - 0.5) * 0.005;
-            velocities[iz] = dz * 0.05 + (Math.random() - 0.5) * 0.005;
-          }
+          const dx = targets[ix] - posArray[ix];
+          const dy = targets[iy] - posArray[iy];
+          const dz = targets[iz] - posArray[iz];
           
-          posArray[ix] += velocities[ix];
-          posArray[iy] += velocities[iy];
-          posArray[iz] += velocities[iz];
+          // Smooth spring-like motion
+          vels[ix] = vels[ix] * 0.9 + dx * 0.08;
+          vels[iy] = vels[iy] * 0.9 + dy * 0.08;
+          vels[iz] = vels[iz] * 0.9 + dz * 0.08;
+          
+          posArray[ix] += vels[ix];
+          posArray[iy] += vels[iy];
+          posArray[iz] += vels[iz];
         }
         
         positionAttr.needsUpdate = true;
-        threeRef.current.car.rotation.y += 0.005;
+        
+        // Position the particle group based on palm position
+        if (palmPos) {
+          // Convert normalized coordinates (0-1) to screen-space (-aspect to aspect, -1 to 1)
+          const aspect = containerWidth / containerHeight;
+          // Mirror X for webcam, and invert Y
+          threeRef.current.particleGroup.position.x = (1 - palmPos.x - 0.5) * 2 * aspect;
+          threeRef.current.particleGroup.position.y = (0.5 - palmPos.y) * 2;
+          threeRef.current.particleGroup.position.z = 0;
+          
+          // Subtle rotation based on gesture
+          threeRef.current.particleGroup.rotation.y += 0.01;
+        }
+        
         threeRef.current.renderer.render(threeRef.current.scene, threeRef.current.camera);
       }
       requestAnimationFrame(animate);
@@ -213,7 +250,12 @@ export function CameraView({ mode }: CameraViewProps) {
             minTrackingConfidence: 0.5
           });
 
-          hands.onResults(onResults);
+          // Use a wrapper that calls the latest onResultsRef
+          hands.onResults((results: any) => {
+            if (onResultsRef.current) {
+              onResultsRef.current(results);
+            }
+          });
 
           const processVideo = async () => {
             if (webcamRef.current?.video?.readyState === 4) {
@@ -267,27 +309,16 @@ export function CameraView({ mode }: CameraViewProps) {
       // Draw skeleton
       drawHandSkeleton(ctx, landmarks, videoWidth, videoHeight);
 
-      // Particle effects on fingertips - EMPHASIZED
-      [4, 8, 12, 16, 20].forEach(idx => {
-        const pt = landmarks[idx];
-        // Emit more particles for emphasis
-        for(let i=0; i<3; i++) {
-          particleSystem.current.emit(
-            (1 - pt.x) * videoWidth, 
-            pt.y * videoHeight, 
-            idx === 4 ? LANDMARK_COLORS.thumb : LANDMARK_COLORS.index
-          );
-        }
-      });
-
-      // Move 3D car based on palm position (index 9)
-      if (threeRef.current) {
-        const palm = landmarks[9];
-        // Map 0-1 range to roughly -3 to 3 for Three.js scene
-        // Mirror X because cam is mirrored
-        threeRef.current.car.position.x = (palm.x - 0.5) * -6;
-        threeRef.current.car.position.y = (0.5 - palm.y) * 4;
-      }
+      // Calculate palm center from vertices 0 (wrist), 1 (thumb_cmc), 5 (index_mcp), 17 (pinky_mcp)
+      const palmVertices = [landmarks[0], landmarks[1], landmarks[5], landmarks[17]];
+      const palmCenter = {
+        x: palmVertices.reduce((sum, p) => sum + p.x, 0) / 4,
+        y: palmVertices.reduce((sum, p) => sum + p.y, 0) / 4,
+        z: palmVertices.reduce((sum, p) => sum + p.z, 0) / 4
+      };
+      
+      // Store palm position globally for Three.js animation loop
+      window.palmPosition = palmCenter;
 
       // Gesture Recognition logic
       if (mode === 'detection' && storedGestures?.length) {
@@ -295,7 +326,11 @@ export function CameraView({ mode }: CameraViewProps) {
       }
     } else {
       setCurrentLandmarks(null);
-      if (mode === 'detection') setLastGesture('None');
+      window.palmPosition = null;
+      if (mode === 'detection') {
+        setLastGesture('None');
+        window.currentGesture = 'None';
+      }
     }
 
     // Update and draw particles
@@ -304,6 +339,11 @@ export function CameraView({ mode }: CameraViewProps) {
 
     ctx.restore();
   }, [mode, storedGestures]);
+
+  // Keep the ref updated with the latest onResults callback
+  useEffect(() => {
+    onResultsRef.current = onResults;
+  }, [onResults]);
 
   const detectGesture = (landmarks: any[]) => {
     if (!storedGestures?.length) return;
@@ -349,11 +389,14 @@ export function CameraView({ mode }: CameraViewProps) {
 
     const currentFeatures = getFeatures(landmarks);
     let bestLabel = 'None';
-    let minDiff = 2.5; // Significantly more permissive threshold for testing
+    let minDiff = 5.0; // Very permissive threshold for matching
 
     storedGestures.forEach(sample => {
       const sampleLandmarks = sample.landmarks as any[];
-      if (!sampleLandmarks) return;
+      if (!sampleLandmarks || !Array.isArray(sampleLandmarks) || sampleLandmarks.length < 21) {
+        console.log(`Invalid landmarks for ${sample.label}:`, sampleLandmarks);
+        return;
+      }
       
       const sampleFeatures = getFeatures(sampleLandmarks);
       
@@ -363,7 +406,7 @@ export function CameraView({ mode }: CameraViewProps) {
         totalDiff += Math.abs(val - sampleFeatures[i]);
       });
 
-      // console.log(`Gesture: ${sample.label}, Diff: ${totalDiff}`); // Debugging locally
+      console.log(`Gesture: ${sample.label}, Diff: ${totalDiff.toFixed(3)}`);
 
       if (totalDiff < minDiff) {
         minDiff = totalDiff;
@@ -374,31 +417,36 @@ export function CameraView({ mode }: CameraViewProps) {
     setLastGesture(bestLabel);
     
     // Global gesture state for 3D car
-    if (window) (window as any).currentGesture = bestLabel;
+    if (window) window.currentGesture = bestLabel;
   };
 
   const handleCapture = () => {
-    if (webcamRef.current) {
+    if (webcamRef.current && currentLandmarks) {
       const imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) setCapturedImage(imageSrc);
+      if (imageSrc) {
+        setCapturedImage(imageSrc);
+        setCapturedLandmarks(currentLandmarks); // Store landmarks at capture time
+      }
     }
   };
 
   const saveSample = (label: string) => {
-    if (!currentLandmarks) return;
+    if (!capturedLandmarks) return;
 
     createGesture.mutate({
       label,
-      landmarks: currentLandmarks
+      landmarks: capturedLandmarks
     }, {
       onSuccess: () => {
         setCapturedImage(null);
+        setCapturedLandmarks(null);
       }
     });
   };
 
+  // Camera content - always fullscreen
   return (
-    <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-white/10 ring-1 ring-white/5">
+    <div className="fixed inset-0 z-[50] bg-black">
       {/* Loading State */}
       <AnimatePresence>
         {loading && (
@@ -419,44 +467,38 @@ export function CameraView({ mode }: CameraViewProps) {
         audio={false}
         screenshotFormat="image/jpeg"
         onUserMedia={() => setCameraReady(true)}
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-contain"
         mirrored
       />
 
       {/* Canvas Overlay */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full pointer-events-none opacity-40"
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        style={{ opacity: 0.9 }}
       />
 
       {/* 3D Content Container */}
       <div ref={threeContainerRef} className="absolute inset-0 z-20 pointer-events-none" />
 
       {/* Overlay UI Layer */}
-      <div className="absolute inset-0 z-10 p-6 flex flex-col justify-between pointer-events-none">
+      <div className="absolute inset-0 z-10 p-6 flex flex-col justify-end pointer-events-none">
         
-        {/* Top Header */}
-        <div className="flex justify-between items-start">
-          <div className="glass-panel px-4 py-2 rounded-lg flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${cameraReady ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-red-500'}`} />
-            <span className="font-tech text-sm uppercase tracking-wider text-white/80">
-              {cameraReady ? 'SYSTEM ONLINE' : 'WAITING FOR INPUT'}
-            </span>
-          </div>
-          
-          {mode === 'detection' && (
+        {/* Detected Gesture Display - Detection Mode Only */}
+        {mode === 'detection' && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2">
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass-panel px-6 py-3 rounded-lg border-primary/30"
+              className="glass-panel px-8 py-4 rounded-lg border-primary/30 text-center"
             >
               <div className="text-xs text-primary/60 font-tech uppercase mb-1">Detected Gesture</div>
-              <div className="text-2xl font-display font-bold text-primary text-shadow-neon">
+              <div className="text-3xl font-display font-bold text-primary text-shadow-neon">
                 {lastGesture.toUpperCase()}
               </div>
             </motion.div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Training Controls (Bottom) */}
         {mode === 'training' && (
@@ -465,37 +507,50 @@ export function CameraView({ mode }: CameraViewProps) {
               <motion.div 
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="glass-panel p-4 rounded-xl max-w-md w-full"
+                className="glass-panel p-4 rounded-xl max-w-2xl w-full"
               >
                 <div className="flex gap-4 items-center mb-4">
-                  <img src={capturedImage} alt="Captured" className="w-24 h-16 object-cover rounded border border-white/20" />
+                  <img src={capturedImage} alt="Captured" className="w-20 h-14 object-cover rounded border border-white/20" />
                   <div className="flex-1">
                     <h3 className="text-white font-display text-sm mb-1">Sample Captured</h3>
-                    <p className="text-xs text-white/50">Assign a label to train the model</p>
+                    <p className="text-xs text-white/50">Select a shape to train this gesture</p>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button 
-                    onClick={() => saveSample('Open Palm')}
-                    disabled={createGesture.isPending}
-                    className="flex-1 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50"
-                  >
-                    Open Palm
-                  </Button>
-                  <Button 
-                    onClick={() => saveSample('Closed Fist')}
-                    disabled={createGesture.isPending}
-                    className="flex-1 bg-accent/20 hover:bg-accent/30 text-accent border border-accent/50"
-                  >
-                    Closed Fist
-                  </Button>
                   <Button 
                     variant="ghost" 
                     onClick={() => setCapturedImage(null)}
                     className="px-3 text-white/50 hover:text-white"
                   >
-                    Cancel
+                    ✕
                   </Button>
+                </div>
+                
+                {/* Shape Buttons Grid */}
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {[
+                    { label: 'Open Palm', icon: '✋', color: 'primary' },
+                    { label: 'Closed Fist', icon: '✊', color: 'accent' },
+                    { label: 'Sphere', icon: '🔮', color: 'secondary' },
+                    { label: 'Heart', icon: '💚', color: 'pink' },
+                    { label: 'Gun', icon: '🔫', color: 'orange' },
+                    { label: 'Sword', icon: '⚔️', color: 'cyan' },
+                    { label: 'Spider', icon: '🕷️', color: 'purple' },
+                    { label: 'Dog', icon: '🐕', color: 'yellow' },
+                    { label: '1', icon: '1️⃣', color: 'blue' },
+                    { label: '2', icon: '2️⃣', color: 'blue' },
+                    { label: '3', icon: '3️⃣', color: 'blue' },
+                    { label: '4', icon: '4️⃣', color: 'blue' },
+                    { label: '5', icon: '5️⃣', color: 'blue' },
+                  ].map((shape) => (
+                    <Button
+                      key={shape.label}
+                      onClick={() => saveSample(shape.label)}
+                      disabled={createGesture.isPending}
+                      className="flex flex-col items-center justify-center p-2 h-auto min-h-[60px] bg-white/5 hover:bg-white/15 border border-white/10 hover:border-primary/50 transition-all"
+                    >
+                      <span className="text-xl mb-1">{shape.icon}</span>
+                      <span className="text-[10px] text-white/70 font-tech uppercase">{shape.label}</span>
+                    </Button>
+                  ))}
                 </div>
               </motion.div>
             ) : (

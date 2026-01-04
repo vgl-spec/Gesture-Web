@@ -1,18 +1,22 @@
-import { pgTable, text, serial, jsonb, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const gestureSamples = pgTable("gesture_samples", {
-  id: serial("id").primaryKey(),
-  label: text("label").notNull(), // e.g. "Open Palm", "Closed Fist"
-  landmarks: jsonb("landmarks").notNull(), // Array of {x, y, z}
-  createdAt: timestamp("created_at").defaultNow(),
+// Zod validation schemas (safe for client-side use)
+export const insertGestureSampleSchema = z.object({
+  label: z.string().min(1, "Label is required"),
+  landmarks: z.array(z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number()
+  })).min(1, "At least one landmark is required")
 });
 
-export const insertGestureSampleSchema = createInsertSchema(gestureSamples).omit({ 
-  id: true, 
-  createdAt: true 
-});
-
-export type GestureSample = typeof gestureSamples.$inferSelect;
 export type InsertGestureSample = z.infer<typeof insertGestureSampleSchema>;
+
+// TypeScript interface for gesture sample
+export interface GestureSample {
+  _id?: string;
+  id: string; // Mapped from _id for frontend compatibility
+  label: string;
+  landmarks: Array<{ x: number; y: number; z: number }>;
+  createdAt: Date;
+}

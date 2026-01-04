@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertGestureSampleSchema, gestureSamples } from './schema';
+import { insertGestureSampleSchema, type GestureSample } from './schema';
 
 export const api = {
   gestures: {
@@ -7,7 +7,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/gestures',
       responses: {
-        200: z.array(z.custom<typeof gestureSamples.$inferSelect>()),
+        200: z.array(z.custom<GestureSample>()),
       },
     },
     create: {
@@ -15,7 +15,7 @@ export const api = {
       path: '/api/gestures',
       input: insertGestureSampleSchema,
       responses: {
-        201: z.custom<typeof gestureSamples.$inferSelect>(),
+        201: z.custom<GestureSample>(),
         400: z.object({ message: z.string() }),
       },
     },

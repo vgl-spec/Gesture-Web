@@ -27,9 +27,6 @@ export interface Point {
 }
 
 export function drawHandSkeleton(ctx: CanvasRenderingContext2D, landmarks: Point[], width: number, height: number) {
-  // Clear previous frame
-  ctx.clearRect(0, 0, width, height);
-
   // Helper to map normalized coordinates to pixel coordinates
   // Mirroring horizontally because it's front cam
   const toPixel = (pt: Point) => ({
@@ -37,10 +34,11 @@ export function drawHandSkeleton(ctx: CanvasRenderingContext2D, landmarks: Point
     y: pt.y * height
   });
 
-  // Draw connections
-  ctx.lineWidth = 3;
+  // Draw connections - faint and subtle
+  ctx.lineWidth = 1;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.15;
 
   HAND_CONNECTIONS.forEach(([startIdx, endIdx]) => {
     const start = toPixel(landmarks[startIdx]);
@@ -49,39 +47,23 @@ export function drawHandSkeleton(ctx: CanvasRenderingContext2D, landmarks: Point
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
-
-    // Color logic based on finger
-    if ([1, 2, 3, 4].includes(endIdx)) ctx.strokeStyle = LANDMARK_COLORS.thumb;
-    else if ([6, 7, 8].includes(endIdx)) ctx.strokeStyle = LANDMARK_COLORS.index;
-    else if ([10, 11, 12].includes(endIdx)) ctx.strokeStyle = LANDMARK_COLORS.middle;
-    else if ([14, 15, 16].includes(endIdx)) ctx.strokeStyle = LANDMARK_COLORS.ring;
-    else if ([18, 19, 20].includes(endIdx)) ctx.strokeStyle = LANDMARK_COLORS.pinky;
-    else ctx.strokeStyle = LANDMARK_COLORS.palm;
-
+    ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   });
 
-  // Draw landmarks
-  landmarks.forEach((landmark, index) => {
+  // Draw landmarks - very faint small dots
+  ctx.globalAlpha = 0.1;
+  landmarks.forEach((landmark) => {
     const { x, y } = toPixel(landmark);
     
-    // Outer glow
     ctx.beginPath();
-    ctx.arc(x, y, 8, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+    ctx.arc(x, y, 2, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
-
-    // Core point
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, 2 * Math.PI);
-    ctx.fillStyle = LANDMARK_COLORS.point;
-    ctx.fill();
-
-    // ID Number
-    ctx.fillStyle = 'white';
-    ctx.font = '10px Inter';
-    ctx.fillText(index.toString(), x + 8, y + 8);
   });
+
+  // Reset alpha
+  ctx.globalAlpha = 1.0;
 }
 
 // Particle System

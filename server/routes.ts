@@ -27,7 +27,7 @@ export async function registerRoutes(
   });
 
   app.delete(api.gestures.delete.path, async (req, res) => {
-    await storage.deleteGesture(Number(req.params.id));
+    await storage.deleteGesture(req.params.id);
     res.status(204).send();
   });
 

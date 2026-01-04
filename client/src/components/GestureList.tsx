@@ -33,9 +33,9 @@ export function GestureList() {
 
       <div className="grid gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
         <AnimatePresence>
-          {gestures.map((gesture) => (
+          {gestures.map((gesture, index) => (
             <motion.div
-              key={gesture.id}
+              key={gesture.id || `gesture-${index}`}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.9 }}
