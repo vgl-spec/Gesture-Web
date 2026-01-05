@@ -43,6 +43,7 @@
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^11.18.2",
+    "gesture-web-client": "file:",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.453.0",
     "next-themes": "^0.4.6",
@@ -55,6 +56,7 @@
     "recharts": "^2.15.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "three": "^0.182.0",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "zod": "^3.24.2"
